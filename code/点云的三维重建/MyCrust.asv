@@ -1,0 +1,451 @@
+%Versione:
+%calcolo di coeff con il teorema di carnot
+%eliminata queue
+%precalcolo di alpha(coeff1)
+%counter optimization
+%inserito add shield
+
+function [t]=MyCrust6(p)
+%%   Main
+starttime=clock;
+
+
+
+tic
+p=AddShield(p);
+fprintf('Addedded Shield: %4.4f s\n',toc)
+
+
+tic
+tetr=delaunayn(p);%creating tedraedron
+tetr=int32(tetr);
+fprintf('Delaunay Triangulation Time: %4.4f s\n',toc)
+
+
+
+tic
+[t2tetr,tetr2t]=Connectivity(tetr);
+fprintf('Connectivity Time: %4.4f s\n',toc)
+tic
+[cc,r]=CC();
+fprintf('Circumcenters Time: %4.4f s\n',toc)
+clear n
+
+
+
+tic
+t=Walking();
+fprintf('Walking Time: %4.4f s\n',toc)
+
+
+time=etime(clock,starttime);
+fprintf('Total Time: %4.4f s\n',time)
+
+Output(p,t)
+
+
+
+%% Circumcenters
+    function [cc,r]=CC()
+
+
+        p1=(p(tetr(:,1),:));
+        p2=(p(tetr(:,2),:));
+        p3=(p(tetr(:,3),:));
+        p4=(p(tetr(:,4),:));
+
+        v21=p(tetr(:,1),:)-p(tetr(:,2),:);
+        v31=p(tetr(:,3),:)-p(tetr(:,1),:);
+        v41=p(tetr(:,4),:)-p(tetr(:,1),:);
+
+
+        cc=zeros(size(tetr,1),3);
+
+
+
+
+
+
+
+        d1=sum(v41.*(p1+p4)*.5,2);
+        d2=sum(v21.*(p1+p2)*.5,2);
+        d3=sum(v31.*(p1+p3)*.5,2);
+
+        det23=(v21(:,2).*v31(:,3))-(v21(:,3).*v31(:,2));
+        det13=(v21(:,3).*v31(:,1))-(v21(:,1).*v31(:,3));
+        det12=(v21(:,1).*v31(:,2))-(v21(:,2).*v31(:,1));
+
+        Det=v41(:,1).*det23+v41(:,2).*det13+v41(:,3).*det12;
+
+
+
+        detx=d1.*det23+...
+            v41(:,2).*(-(d2.*v31(:,3))+(v21(:,3).*d3))+...
+            v41(:,3).*((d2.*v31(:,2))-(v21(:,2).*d3));
+
+
+
+        dety=v41(:,1).*((d2.*v31(:,3))-(v21(:,3).*d3))+...
+            d1.*det13+...
+            v41(:,3).*((d3.*v21(:,1))-(v31(:,1).*d2));
+
+
+
+        detz=v41(:,1).*((v21(:,2).*d3)-(d2.*v31(:,2)))...
+            +v41(:,2).*(d2.*v31(:,1)-v21(:,1).*d3)...
+            +d1.*(det12);
+
+
+        cc(:,1)=detx./Det;
+        cc(:,2)=dety./Det;
+        cc(:,3)=detz./Det;
+
+
+
+        r=((sum((p2-cc).^2,2))).^.5;%quadrato del raggio
+    end
+
+
+
+%% Connectivity
+
+    function [t2tetr,tetr2t]=Connectivity(tetr)
+
+       
+
+        numt = size(tetr,1);
+        vect = 1:numt;
+        t = [tetr(:,[1,2,3]); tetr(:,[2,3,4]); tetr(:,[1,3,4]);tetr(:,[1,2,4])];
+        [t,j,j] = unique(sort(t,2),'rows');
+        t2tetr = [j(vect), j(vect+numt), j(vect+2*numt),j(vect+3*numt)];
+
+
+        % triang-to-tetr connectivity
+      
+        nume = size(t,1);
+        tetr2t  = zeros(nume,2,'int32');
+        count= ones(nume,1,'int8');
+        for k = 1:numt
+
+            for j=1:4
+                ce = t2tetr(k,j);
+                tetr2t(ce,count(ce)) = k;
+                count(ce)=count(ce)+1;
+            end
+
+        end
+
+
+    end      % connectivity()
+
+
+
+%% Walking
+    function t=Walking()
+        np=size(p,1)-600;
+        numtetr=size(tetr,1);
+        nt=size(tetr2t,1);
+
+
+        deleted=true(numtetr,1);
+        checked=false(numtetr,1);
+        onfront=false(nt,1);
+        countchecked=0;
+        %trovo i tetraedri esterni
+        for i=1:numtetr
+            for j=1:4
+                if tetr(i,j)>np;
+
+                    deleted(i)=true;
+                    checked(i)=true;
+                    onfront(t2tetr(i,:))=true;
+                    countchecked=countchecked+1;
+                    break
+                end
+            end
+        end
+
+        
+        toll=zeros(nt,1)+.95; 
+        level=0;
+        
+        alpha=zeros(nt,1);
+        for i=1:nt
+            if tetr2t(i,2)>0
+        distcc=sum((cc(tetr2t(i,1),:)-cc(tetr2t(i,2),:)).^2,2);%distanza fra i circocentri
+                    alpha(i)=(-distcc+r(tetr2t(i,1))^2+r(tetr2t(i,2))^2)/(2*r(tetr2t(i,1))*r(tetr2t(i,2)));
+            end
+        end
+        clear cc
+        while countchecked<numtetr && level<50
+             level=level+1;
+            for id=1:nt
+
+                if onfront(id)
+
+                    tetr1=tetr2t(id,1);tetr2=tetr2t(id,2);%tetraedri collegati al triangolo
+                    if  tetr2==0
+                        onfront(id)=false;
+                        continue
+                       
+                    elseif (checked(tetr1) && checked(tetr2)) %i tetraedri sono già stati controllati
+                         onfront(id)=false;
+                        continue
+                       
+                    end
+
+                    if alpha(id)>=toll(id) %flag as equal
+                       
+                        if checked(tetr1)
+                            deleted(tetr2)=deleted(tetr1) ;
+                            checked(tetr2)=true;
+                            countchecked=countchecked+1;
+                            onfront(t2tetr(tetr2,:))=true;
+                        else
+                            deleted(tetr1)=deleted(tetr2) ;
+                            checked(tetr1)=true;
+                            countchecked=countchecked+1;
+                            onfront(t2tetr(tetr1,:))=true;
+                        end
+                         onfront(id)=false;%remove from front
+                    elseif alpha(id)<-toll(id)%flag as different
+                       
+                        if checked(tetr1)
+                            deleted(tetr2)=not(deleted(tetr1)) ;
+                            checked(tetr2)=true;
+                            countchecked=countchecked+1;
+                            onfront(t2tetr(tetr2,:))=true;
+                        else
+                            deleted(tetr1)=not(deleted(tetr2)) ;
+                            checked(tetr1)=true;
+                            countchecked=countchecked+1;
+                            onfront(t2tetr(tetr1,:))=true;
+                        end
+                         onfront(id)=false;%remove from front
+                    else
+                        toll(id)=toll(id)-.05;%la prossima volta il test sarà meno severo
+
+                    end
+
+
+
+                end
+            end
+            
+            if level>31 %brute continuation
+                 warning('Brute continuation necessary')
+                onfront(t2tetr(not(checked),:))=true;
+            end
+        end
+        
+        
+        %%
+        
+       
+        %%optimization
+       
+        changeappened=true;
+%         checked=false(numtetr,1);
+        iter=0;
+        while changeappened && iter<50
+            iter=iter+1;
+             r=zeros(numtetr,1);
+        changeappened=false;
+%          figure(1)
+%           t=BoundTriangles(tetr(not(deleted),:));
+%          hold off
+%          plot(0,0)
+%         hold on 
+%         axis equal
+%         title('Before optimization')
+%         axis equal
+%         trisurf(t,p(:,1),p(:,2),p(:,3),'facecolor','c','edgecolor','b')%plot della superficie trattata
+        for i=1:numtetr
+            for j=1:4
+                k=t2tetr(i,j);%triangle under analysys
+                if tetr2t(k,1)==i && tetr2t(k,2)>0%find the other thetraedrom
+                    tetr1=tetr2t(k,2);
+%                     
+%                     if checked(tetr1)
+%                         continue
+%                     end
+                    
+                    if deleted(tetr1) %il tetr è vuoto
+                       
+                            r(i)=r(i)-alpha(k);
+
+                    else    %il tetr è pieno   
+                            r(i)=r(i)+alpha(k);%il tetr si interseca con un pieno
+
+                    end
+                        
+                        
+                        
+                elseif tetr2t(k,2)==i 
+                    
+                     tetr1=tetr2t(k,1);
+%                     if checked(tetr1)
+%                         continue
+%                     end
+                    if deleted(tetr1) %il tetr è vuoto
+                        if alpha(k)>=0
+                            r(i)=r(i)-alpha(k);%il tetr si interseca con un vuoto
+                        else
+                            r(i)=r(i)-alpha(k);%il tetr non si interseca con un vuoto
+                        end
+                    else        %il tetr è pieno
+                        if alpha(k)>=0
+                            r(i)=r(i)+alpha(k);%il tetr si interseca con un pieno
+                        else
+                            r(i)=r(i)+alpha(k);%il tetr non si interseca con un pieno
+                        end
+    
+                    end
+                end
+
+            end 
+        end
+        
+        %detect changes
+        for i=1:numtetr
+            if (deleted(i) && r(i)>0) || (not(deleted(i)) && r(i)<0)   
+                changeappened=true;
+                disp('Change detected')
+                break
+%                 checked(i)=true;%perde diritto di voto
+%                 figure(1)
+%                 hold on
+%                 if deleted(i)
+%                 tetramesh(tetr(i,:),p,'facecolor','g')
+%                 else
+%                      tetramesh(tetr(i,:),p,'facecolor','k')
+%                 end
+                    
+            end
+        end
+         
+
+        deleted=r<0;
+        end
+        
+        
+        
+        
+        
+        
+        tetr(deleted,:)=[];
+
+        t=BoundTriangles(tetr);
+        numchecked=countchecked/numtetr;
+        if level==50
+            warning([num2str(level),' th level was reached\n'])
+        else
+         fprintf('%4.4f th level was reached\n',level)
+        end
+        fprintf('%4.4f %% of Tetraedrom were checked\n',numchecked*100)
+
+
+
+    end
+
+
+
+
+end
+
+%% AddAddShield
+function pnew=AddShield(p)
+
+maxx=max(p(:,1));
+maxy=max(p(:,2));
+maxz=max(p(:,3));
+minx=min(p(:,1));
+miny=min(p(:,2));
+minz=min(p(:,3));
+
+step=max(abs([maxx,minx,maxy,miny,maxz,minz]));
+
+maxx=maxx+step;
+maxy=maxy+step;
+maxz=maxz+step;
+minx=minx-step;
+miny=miny-step;
+minz=minz-step;
+step=step/100;
+N=10;
+
+vx=linspace(minx,maxx,N);
+vy=linspace(miny,maxy,N);
+vz=linspace(minz,maxz,N);
+
+
+
+
+[x,y]=meshgrid(vx,vy);
+facez1=[x(:),y(:),ones(N*N,1)*maxz];
+facez2=[x(:),y(:),ones(N*N,1)*minz];
+[x,y]=meshgrid(vy,vz-step);
+facex1=[ones(N*N,1)*maxx,x(:),y(:)];
+facex2=[ones(N*N,1)*minx,x(:),y(:)];
+[x,y]=meshgrid(vx-step,vz);
+facey1=[x(:),ones(N*N,1)*maxy,y(:)];
+facey2=[x(:),ones(N*N,1)*miny,y(:)];
+
+
+pnew=[p;
+ facex1;
+ facex2;
+ facey1;
+ facey2;
+ facez1;
+ facez2];
+
+figure(2)
+plot3(pnew(:,1),pnew(:,2),pnew(:,3),'.g')
+
+
+end
+
+
+
+%% BoundTriangles
+function t=BoundTriangles(tetr)
+
+numt = size(tetr,1);
+vect = 1:numt;
+t = [tetr(:,[1,2,3]); tetr(:,[2,3,4]); tetr(:,[1,3,4]);tetr(:,[1,2,4])];
+[t,j,j] = unique(sort(t,2),'rows');
+t2tetr = [j(vect), j(vect+numt), j(vect+2*numt),j(vect+3*numt)];
+
+
+% triang-to-tetr connectivity
+% Each row has two entries corresponding to the triangle numbers
+% associated with each edge. Boundary edges have e2t(i,2)=0.
+nume = size(t,1);
+tetr2t  = zeros(nume,2,'int32');
+count= ones(nume,1,'int32');
+for k = 1:numt
+
+    for j=1:4
+        ce = t2tetr(k,j);
+        tetr2t(ce,count(ce)) = k;
+        count(ce)=count(ce)+1;
+    end
+
+end
+tbound=false(numt,1);
+tbound=tetr2t(:,2)==0;
+t=t(tbound,:);
+end
+
+%% Output
+function Output(p,t)
+
+
+        figure(4)
+        hold on
+        title('Output Triangulation')
+        axis equal
+        trisurf(t,p(:,1),p(:,2),p(:,3),'facecolor','c','edgecolor','b')%plot della superficie trattata
+
+end
